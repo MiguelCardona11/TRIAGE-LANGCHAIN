@@ -1,0 +1,28 @@
+# ============================================================
+# Nivel 2 - Triage de correo con LangChain
+# Python 3.11+  |  instalar en un venv:  pip install -r requirements.txt
+# ============================================================
+
+# --- Nucleo de LangChain ---
+langchain>=0.2
+langchain-core>=0.2
+
+# --- LLM: Groq (free tier) ---
+langchain-groq
+
+# --- Gmail: toolkit de tools + OAuth de escritorio ---
+langchain-google-community[gmail]
+
+# --- Utilidades ---
+python-dotenv
+pydantic>=2
+jupyter
+
+# ============================================================
+# RAG OPCIONAL (plantillas de respuesta)
+# Descomenta estas 3 lineas y pon USE_RAG = True en el notebook
+# para activar la recuperacion de plantillas con un vector store local.
+# ============================================================
+# langchain-chroma
+# langchain-huggingface
+# sentence-transformers

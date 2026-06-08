@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import json,sys; nb=json.load\\(open\\('triage_langchain.ipynb',encoding='utf-8'\\)\\); print\\('JSON OK. nbformat',nb['nbformat'],'cells',len\\(nb['cells']\\)\\); print\\('tipos:', {c['cell_type'] for c in nb['cells']}\\)\")",
+      "Bash(python -c \"import nbformat; nbformat.validate\\(nbformat.read\\('triage_langchain.ipynb',as_version=4\\)\\); print\\('nbformat.validate OK'\\)\")",
+      "Bash(python _build_notebook.py)",
+      "Bash(python -c \"import json; nb=json.load\\(open\\('triage_langchain.ipynb',encoding='utf-8'\\)\\); print\\('minor', nb['nbformat_minor']\\); print\\('first cell type', nb['cells'][0]['cell_type']\\)\")",
+      "Bash(rm _build_notebook.py)"
+    ]
+  }
+}

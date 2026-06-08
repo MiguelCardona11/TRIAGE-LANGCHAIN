@@ -1,0 +1,21 @@
+# --- Entorno virtual ---
+.venv/
+venv/
+env/
+
+# --- Secretos y credenciales (NUNCA versionar) ---
+.env
+credentials.json
+token.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- RAG: vector store local ---
+chroma_db/
+.chroma/

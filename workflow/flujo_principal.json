@@ -1,0 +1,433 @@
+{
+  "name": "Triage automático de correo (Nivel 1)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "maxResults": 3,
+        "filters": {
+          "readStatus": "unread"
+        },
+        "options": {}
+      },
+      "id": "91a40ca2-080f-4eed-bfc8-7678ca4309b9",
+      "name": "Nuevo correo",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        240,
+        400
+      ],
+      "retryOnFail": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTMK2LKdLPPJB8k8",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=De: {{ $json.from.text }}\nAsunto: {{ $json.subject }}\nCuerpo:\n{{ $json.text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Eres un asistente de triage de correo electronico. Clasifica cada correo y devuelve la respuesta en el formato estructurado solicitado.\n\nCategorias posibles (campo categoria):\n- Urgente: requiere accion o respuesta inmediata.\n- Solicitud de informacion: pide datos, aclaraciones o documentos.\n- Spam o promocion: publicidad, newsletters no solicitados o phishing.\n- Otro: cualquier correo que no encaje en lo anterior.\n\nReglas:\n- urgencia debe ser alta, media o baja.\n- requiere_respuesta es true solo si el correo espera una respuesta del destinatario.\n- borrador_respuesta: si requiere_respuesta es true, redacta una respuesta breve, cordial y profesional en espanol; si es false, deja la cadena vacia.\n- resumen: una sola frase con el contenido del correo."
+        }
+      },
+      "id": "8cd0deef-e18a-46a1-99d4-368d672d6753",
+      "name": "Clasificar y redactar",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        464,
+        400
+      ],
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{ \"categoria\": \"Urgente\", \"urgencia\": \"alta\", \"resumen\": \"El cliente reporta un error en el sistema de pagos.\", \"requiere_respuesta\": true, \"borrador_respuesta\": \"Hola, gracias por avisarnos. Estamos revisando el inconveniente y te daremos una respuesta a la brevedad. Saludos.\" }"
+      },
+      "id": "008aa82a-3c3f-4586-a906-b24d95d4b9b9",
+      "name": "Formato de salida",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        608,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Urgente",
+                    "id": "19846da7-f06f-490d-9c08-af32f4ef2bf8"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Urgente"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Solicitud de informacion",
+                    "id": "d4dbdb94-73b5-4926-a17f-0a225d2973d1"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Solicitud"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Spam o promocion",
+                    "id": "a5de8bb9-c668-46dd-8e47-fae1b23fd8a9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Spam"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Otro"
+        }
+      },
+      "id": "d6d8bc35-d52d-4c4c-ac50-8cfe4d779b9a",
+      "name": "Enrutar por categoria",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        816,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=Re: {{ $('Nuevo correo').item.json.subject }}",
+        "message": "={{ $('Clasificar y redactar').item.json.output.borrador_respuesta }}",
+        "options": {
+          "threadId": "={{ $('Nuevo correo').item.json.threadId }}",
+          "sendTo": "={{ $('Nuevo correo').item.json.from.value[0].address }}"
+        }
+      },
+      "id": "c37a7ba8-771f-4b91-8263-a3bf78faf7e7",
+      "name": "Borrador respuesta",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        112
+      ],
+      "webhookId": "a5552675-601e-4e82-906e-ebe7a952668f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTMK2LKdLPPJB8k8",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Nuevo correo').item.json.id }}",
+        "labelIds": [
+          "SPAM"
+        ]
+      },
+      "id": "2b27366d-ee3e-46ac-85f2-94c075bacc6a",
+      "name": "Etiquetar (Spam)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        496
+      ],
+      "webhookId": "61f88cf0-9c44-4b9b-ad01-6410e900404e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTMK2LKdLPPJB8k8",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Nuevo correo').item.json.id }}",
+        "labelIds": [
+          "UNREAD"
+        ]
+      },
+      "id": "36d11e16-2054-4c09-9ebf-1d89f1914500",
+      "name": "Etiquetar (Revisar)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        688
+      ],
+      "webhookId": "e2d6f284-c78f-4424-9a25-c9c2f23dbf77",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTMK2LKdLPPJB8k8",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "5b273ae3-8ccc-4322-b080-245c449e7dc5",
+      "name": "Groq",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        480,
+        624
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "flfNfevUvtCLLSyr",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "get",
+        "threadId": "={{ $('Nuevo correo').item.json.threadId }}",
+        "simple": false,
+        "options": {
+          "returnOnlyMessages": false
+        }
+      },
+      "id": "9eed6233-038e-46ea-9a94-ee99f4f0c848",
+      "name": "Obtener hilo",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        112
+      ],
+      "webhookId": "5f52e87e-c116-4da2-bf90-139f3cf6ec5c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "MTMK2LKdLPPJB8k8",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.messages || []).some(m => ((m.labels || []).some(l => (l.id || l.name) === 'DRAFT')) || ((m.labelIds || []).includes('DRAFT'))) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e220caf2-3715-40aa-bbf9-d24ac9e47c9e",
+      "name": "Revisar borrador",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1280,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Nuevo correo": {
+      "main": [
+        [
+          {
+            "node": "Clasificar y redactar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clasificar y redactar": {
+      "main": [
+        [
+          {
+            "node": "Enrutar por categoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formato de salida": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Clasificar y redactar",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar por categoria": {
+      "main": [
+        [
+          {
+            "node": "Obtener hilo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obtener hilo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Etiquetar (Spam)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Etiquetar (Revisar)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Clasificar y redactar",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener hilo": {
+      "main": [
+        [
+          {
+            "node": "Revisar borrador",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revisar borrador": {
+      "main": [
+        null,
+        [
+          {
+            "node": "Borrador respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "3408f333-15b9-49b4-9eb2-3a3ba755f8bb",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9e79ac51775790ba728608c26b02ef1dc3e08672f14f6d79eeea1f910e07ba86"
+  },
+  "nodeGroups": [],
+  "id": "ZtZD1qvhBfADfNOb",
+  "tags": []
+}
