@@ -19,3 +19,8 @@ __pycache__/
 # --- RAG: vector store local ---
 chroma_db/
 .chroma/
+
+# Claude Code
+.claude/
+.claude
+CLAUDE.md
