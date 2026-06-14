@@ -16,7 +16,7 @@ langchain-google-community[gmail]
 # --- Utilidades ---
 python-dotenv
 pydantic>=2
-jupyter
+notebook
 
 # ============================================================
 # RAG OPCIONAL (plantillas de respuesta)
