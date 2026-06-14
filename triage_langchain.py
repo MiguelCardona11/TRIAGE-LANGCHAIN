@@ -105,7 +105,9 @@ Categorias posibles (campo categoria):
 Reglas:
 - urgencia debe ser alta, media o baja.
 - requiere_respuesta es un booleano True solo si el correo espera una respuesta del destinatario, de lo contrario es False. No puede ser string
-- borrador_respuesta: si requiere_respuesta es true, redacta una respuesta breve, cordial y profesional en espanol; si es false, deja la cadena vacia.
+- ALERTAS DE SEGURIDAD, notificaciones del sistema, boletines y correos automaticos: requiere_respuesta=False. Son urgentes de leer pero NO requieren que escribas una respuesta.
+- borrador_respuesta: si requiere_respuesta es true, redacta una respuesta breve, cordial y profesional en espanol; si es false, deja la cadena vacia ("").
+- resumen: una sola frase con el contenido del correo.
 - resumen: una sola frase con el contenido del correo.
 - razonamiento: explica brevemente por que elegiste la categoria antes de decidir."""
 
@@ -229,6 +231,8 @@ def hilo_tiene_borrador(api_resource, thread_id: str) -> bool:
 
 
 def crear_borrador_en_hilo(api_resource, to: str, asunto: str, cuerpo: str, thread_id: str) -> dict:
+    if not cuerpo or not cuerpo.strip():
+        raise ValueError("El cuerpo del borrador esta vacio, no se creara el draft")
     asunto_resp = asunto if asunto.lower().startswith("re:") else "Re: " + asunto
     mime = MIMEText(cuerpo, "plain", "utf-8")
     mime["To"] = to
@@ -264,7 +268,8 @@ def redactar_borrador(llm, triage, campos: dict) -> str:
 
 
 def procesar_bandeja(api_resource, tools, cadena_clasificacion, llm,
-                      max_correos: int = 3, crear_borradores: bool = True):
+                      max_correos: int = 3, crear_borradores: bool = True,
+                      agente_rl=None):
     tool_buscar = tools["search_gmail"]
     try:
         correos = tool_buscar.invoke({
@@ -292,7 +297,56 @@ def procesar_bandeja(api_resource, tools, cadena_clasificacion, llm,
             print(f"[ERROR] Clasificacion fallida para '{campos['asunto']}': {e}")
             continue
 
-        if triage.categoria in CATEGORIAS_RESPONDER and triage.requiere_respuesta:
+        # Refinamiento con RL (Nivel 3): el agente puede corregir la decision del LLM
+        if agente_rl is not None:
+            from triage_rl import TriageEnv
+            estado_rl = TriageEnv.codificar_estado(
+                triage.categoria, triage.urgencia,
+                len(campos["cuerpo"]),
+                tiene_enlaces="http" in campos["cuerpo"].lower() or "www." in campos["cuerpo"].lower(),
+                tiene_adjuntos=False,
+            )
+            accion_rl = agente_rl.accion_optima(estado_rl)
+        else:
+            accion_rl = None
+
+        # Si hay RL, usar su accion; si no, usar el enrutamiento del LLM
+        if accion_rl is not None:
+            from triage_rl import Accion as RLAction
+            if accion_rl == RLAction.CREAR_BORRADOR:
+                # Seguridad: aunque RL diga CREAR_BORRADOR, respetar si el LLM dice que no requiere respuesta
+                if not triage.requiere_respuesta or not triage.borrador_respuesta.strip():
+                    accion = "OMITIDO por RL (LLM indica que no requiere respuesta o borrador vacio)"
+                elif hilo_tiene_borrador(api_resource, thread_id):
+                    accion = "OMITIDO (el hilo ya tiene un borrador)"
+                elif not crear_borradores:
+                    accion = "SIMULADO (borrador no creado: pasada en seco)"
+                else:
+                    try:
+                        cuerpo = redactar_borrador(llm, triage, campos)
+                        crear_borrador_en_hilo(
+                            api_resource,
+                            to=campos["remitente"],
+                            asunto=campos["asunto"],
+                            cuerpo=cuerpo,
+                            thread_id=thread_id,
+                        )
+                        accion = "BORRADOR creado en el hilo (RL)"
+                    except (HttpError, ValueError) as e:
+                        accion = f"ERROR al crear borrador: {e}"
+            elif accion_rl == RLAction.MOVER_SPAM:
+                if not crear_borradores or not message_id:
+                    accion = f"SIMULADO (SPAM no aplicado)"
+                else:
+                    etiquetar_mensaje(api_resource, message_id, ["SPAM"])
+                    accion = "ETIQUETADO como SPAM (RL)"
+            else:  # MARCAR_REVISION o NADA
+                if not crear_borradores or not message_id:
+                    accion = f"SIMULADO (UNREAD no aplicado)"
+                else:
+                    etiquetar_mensaje(api_resource, message_id, ["UNREAD"])
+                    accion = "ETIQUETADO como UNREAD (RL)"
+        elif triage.categoria in CATEGORIAS_RESPONDER and triage.requiere_respuesta:
             if hilo_tiene_borrador(api_resource, thread_id):
                 accion = "OMITIDO (el hilo ya tiene un borrador)"
             elif not crear_borradores:
@@ -366,6 +420,11 @@ def main():
                         help="Activa RAG de plantillas de respuesta")
     parser.add_argument("--max-correos", type=int, default=3,
                         help="Numero maximo de correos no leidos a procesar (default: 3)")
+    parser.add_argument("--rl", type=str, nargs="?", const="q_table_triage.npy",
+                        help="Activa capa de refuerzo Q-Learning (post-procesamiento). "
+                             "Opcional: ruta de la Q-table (default: q_table_triage.npy)")
+    parser.add_argument("--rl-demo", action="store_true",
+                        help="Entrena RL y muestra comparacion LLM vs LLM+RL sobre correos demo")
     args = parser.parse_args()
 
     global USE_RAG
@@ -381,9 +440,35 @@ def main():
         print("[2b/4] Inicializando RAG...")
         init_rag()
 
+    if args.rl_demo:
+        from triage_rl import demo_offline_rl
+        demo_offline_rl(llm, cadena_clasificacion)
+        return
+
+    agente_rl = None
+    if args.rl:
+        from triage_rl import QLearningAgent, N_ESTADOS, N_ACCIONES, TriageEnv
+        ruta_q = args.rl
+        if os.path.exists(ruta_q):
+            agente_rl = QLearningAgent(N_ESTADOS, N_ACCIONES)
+            agente_rl.cargar(ruta_q)
+            print(f"[2c/4] Agente RL cargado desde {ruta_q}")
+        else:
+            print(f"[WARN] No se encontro {ruta_q}. Entrenando agente RL ahora...")
+            from triage_rl import entrenar
+            agente_rl, *resto = entrenar(
+                llm=llm, cadena_clasificacion=cadena_clasificacion,
+                episodios=300, n_por_clase=40, usar_llm=True,
+                ruido_llm=0.0, guardar_q=ruta_q,
+            )
+
     if args.demo:
         print("[3/4] Modo demo: clasificacion offline (sin Gmail)")
-        demo_offline(cadena_clasificacion)
+        if agente_rl:
+            from triage_rl import demo_offline_rl
+            demo_offline_rl(llm, cadena_clasificacion)
+        else:
+            demo_offline(cadena_clasificacion)
         return
 
     print("[3/4] Conectando a Gmail...")
@@ -402,6 +487,7 @@ def main():
         api_resource, tools, cadena_clasificacion, llm,
         max_correos=args.max_correos,
         crear_borradores=not args.dry_run,
+        agente_rl=agente_rl,
     )
 
 

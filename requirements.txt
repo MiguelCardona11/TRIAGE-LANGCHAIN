@@ -26,3 +26,8 @@ notebook
 # langchain-chroma
 # langchain-huggingface
 # sentence-transformers
+
+# ============================================================
+# Nivel 3 - Q-Learning (opcional, ~50 MB con dependencias)
+# ============================================================
+matplotlib
