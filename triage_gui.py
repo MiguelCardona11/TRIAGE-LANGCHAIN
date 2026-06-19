@@ -82,7 +82,6 @@ st.session_state.page = {
 st.sidebar.divider()
 st.sidebar.caption("Nivel 2 · LangChain + Groq")
 st.sidebar.caption("Nivel 3 · Q-Learning")
-st.sidebar.caption("Hecho con ❤️ para IA")
 
 # ---------------------------------------------------------------
 # PÁGINA: INICIO
