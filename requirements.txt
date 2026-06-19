@@ -31,3 +31,8 @@ notebook
 # Nivel 3 - Q-Learning (opcional, ~50 MB con dependencias)
 # ============================================================
 matplotlib
+
+# ============================================================
+# GUI Streamlit (opcional, triage_gui.py)
+# ============================================================
+streamlit
